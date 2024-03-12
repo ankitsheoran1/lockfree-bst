@@ -1,6 +1,7 @@
 use core::sync;
-use std::fmt;
-use std::ops::{ DerefMut, Deref };
+use std::{fmt, ptr};
+//use std::ops::{ DerefMut, Deref };
+use std::sync::Arc;
 
 const POSITIVE_INF: u32 = u32::MAX;
 const NEGATIVE_INF: u32 = u32::MIN;
@@ -11,7 +12,7 @@ struct NodePtr {
     flag: bool,
     mark: bool,
     thread: bool,
-    node_ref: Box<Option<Node>>,
+    node_ref: Arc<Node>,
 }
 
 #[derive(Debug)]
@@ -22,33 +23,33 @@ struct Node {
     pre_link: sync::atomic::AtomicPtr<Node>,
 }
 
-impl DerefMut for Node {
-    fn deref_mut(&mut self) -> &mut Self {
-        self
-    }
-}
+// impl DerefMut for Node {
+//     fn deref_mut(&mut self) -> &mut Self {
+//         self
+//     }
+// }
 
-impl Deref for Node {
-    type Target = Self;
+// impl Deref for Node {
+//     type Target = Self;
 
-    fn deref(&self) -> &Self::Target {
-        self
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         self
+//     }
+// }
 
-impl Deref for NodePtr {
-    type Target = Self;
+// impl Deref for NodePtr {
+//     type Target = Self;
 
-    fn deref(&self) -> &Self::Target {
-        self
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         self
+//     }
+// }
 
-impl DerefMut for NodePtr {
-    fn deref_mut(&mut self) -> &mut Self {
-        self
-    }
-}
+// impl DerefMut for NodePtr {
+//     fn deref_mut(&mut self) -> &mut Self {
+//         self
+//     }
+// }
 
 
 // impl Clone for Node {
@@ -58,7 +59,7 @@ impl DerefMut for NodePtr {
 // }
 
 struct Bst {
-    root: [Node; 2],
+    root: [Arc<Node>; 2],
     optimization: bool,
 }
 
@@ -82,7 +83,7 @@ impl Node {
 }
 
 impl NodePtr {
-    fn new(flag: bool, mark: bool, thread: bool, node_ref: Box<Option<Node>> ) -> Self {
+    fn new(flag: bool, mark: bool, thread: bool, node_ref: Arc<Node> ) -> Self {
        NodePtr {
         flag,
         mark,
@@ -94,18 +95,18 @@ impl NodePtr {
 
 impl Bst {
     fn new(optimize : bool) -> Self {
-        let first_root_left_child = Node::new(NEGATIVE_INF, [sync::atomic::AtomicPtr::new(core::ptr::null_mut()),sync::atomic::AtomicPtr::new( core::ptr::null_mut())], sync::atomic::AtomicPtr::new(core::ptr::null_mut()), sync::atomic::AtomicPtr::new(core::ptr::null_mut()));
-        let first_root_right_child = Node::new(POSITIVE_INF, [sync::atomic::AtomicPtr::new(core::ptr::null_mut()), sync::atomic::AtomicPtr::new(core::ptr::null_mut())], sync::atomic::AtomicPtr::new(core::ptr::null_mut()), sync::atomic::AtomicPtr::new(core::ptr::null_mut()));
-        let mut root = [first_root_left_child, first_root_right_child];
-        root[0].child[0].store(Box::into_raw(Box::new(NodePtr::new(false, false, true, Box::new(Some(&first_root_left_child))))), sync::atomic::Ordering::SeqCst);
-        root[0].child[1] = sync::atomic::AtomicPtr::new(Box::into_raw(Box::new(NodePtr::new(false, false, true, Box::new(Some(*root[1]))))));
-        root[0].back_link = sync::atomic::AtomicPtr::new(Box::into_raw(Box::new(*root[1])));
-        root[0].pre_link = sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+        let first_root_left_child = Arc::new(Node::new(NEGATIVE_INF, [sync::atomic::AtomicPtr::new(core::ptr::null_mut()),sync::atomic::AtomicPtr::new(core::ptr::null_mut())], sync::atomic::AtomicPtr::new(core::ptr::null_mut()), sync::atomic::AtomicPtr::new(core::ptr::null_mut())));
+        let first_root_right_child = Arc::new(Node::new(POSITIVE_INF, [sync::atomic::AtomicPtr::new(core::ptr::null_mut()), sync::atomic::AtomicPtr::new(core::ptr::null_mut())], sync::atomic::AtomicPtr::new(core::ptr::null_mut()), sync::atomic::AtomicPtr::new(core::ptr::null_mut())));
+        let root = [first_root_left_child.clone(), first_root_right_child.clone()];
+        root[0].child[0].store(Box::into_raw(Box::new(NodePtr::new(false, false, true, root[0].clone()))), sync::atomic::Ordering::SeqCst);
+        root[0].child[1].store(Box::into_raw(Box::new(NodePtr::new(false, false, true, first_root_right_child.clone()))), sync::atomic::Ordering::SeqCst);
+        root[0].back_link.store(Arc::into_raw(root[1].clone()) as * mut Node, sync::atomic::Ordering::SeqCst);
+        root[0].pre_link.store(core::ptr::null_mut(), sync::atomic::Ordering::SeqCst);
 
-        root[1].child[0] = sync::atomic::AtomicPtr::new(Box::into_raw(Box::new(NodePtr::new(false, false, true, Box::new(Some(*root[0]))))));
-        root[1].child[1] = sync::atomic::AtomicPtr::new(Box::into_raw(Box::new(NodePtr::new(false, false, true, Box::new(None)))));
-        root[1].back_link = sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-        root[1].pre_link = sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+        root[1].child[0].store(Box::into_raw(Box::new(NodePtr::new(false, false, true, root[0].clone()))), sync::atomic::Ordering::SeqCst);
+        root[1].child[1].store(Box::into_raw(Box::new(NodePtr::new(false, false, true, unsafe { Arc::from_raw(ptr::null_mut()) }))), sync::atomic::Ordering::SeqCst);
+        root[1].back_link.store(core::ptr::null_mut(), sync::atomic::Ordering::SeqCst);
+        root[1].pre_link.store(core::ptr::null_mut(), sync::atomic::Ordering::SeqCst);
         
         Bst {
             root, 
@@ -125,4 +126,7 @@ impl Bst {
 fn main() {
     let bst = Bst::new(true);
     println!("???{:?}", bst);
+    println!("++++++++++++++++{:?}", unsafe { Arc::clone(&(*bst.root[0].child[0].load(sync::atomic::Ordering::SeqCst)).node_ref) });
+    println!("++++++++++++++++{:?}", &(*bst.root[0]));
+
 }
