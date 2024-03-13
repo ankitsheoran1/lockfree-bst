@@ -113,6 +113,107 @@ impl Bst {
             optimization: optimize
         }
     }
+
+    fn contains(&self, k: u32) -> bool {
+
+        let dir = self.locate(self.root[0].clone(), self.root[1].clone(), k);
+
+        if dir == 2 {
+            return true;
+        }
+
+        false
+      
+    }
+
+    fn cas(&self, old_value: sync::atomic::AtomicPtr<NodePtr>, new_value: sync::atomic::AtomicPtr<NodePtr>, replacement: sync::atomic::AtomicPtr<NodePtr>) -> bool {
+
+        const TIMES: i32 = 3;
+        let mut res = false;
+        for i in 0..TIMES {
+              match old_value.compare_exchange_weak(new_value.load(sync::atomic::Ordering::SeqCst), replacement.load(sync::atomic::Ordering::SeqCst), sync::atomic::Ordering::SeqCst, sync::atomic::Ordering::Relaxed) {
+                 Ok(_) => {
+                 res = true;
+                 break;
+               },
+               Err(_) => continue,
+        }
+      }
+      
+      res
+    }
+
+    fn add(&mut self, k: u32) -> bool {
+        let child = [sync::atomic::AtomicPtr::new(core::ptr::null_mut()),sync::atomic::AtomicPtr::new(core::ptr::null_mut())];
+        let back_link = sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+        let pre_link = sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+        let node = Arc::new(Node::new(k, child, back_link, pre_link));
+        let curr = self.root[1].clone();
+        let prev = self.root[0].clone();
+        node.child[0].store(Box::into_raw(Box::new(NodePtr::new(false, false, true, node.clone()))), sync::atomic::Ordering::SeqCst);
+        loop {
+            let dir = self.locate(prev.clone(), curr.clone(), k);
+            if dir == 2 {
+                return false;
+            } else {
+                let nxt = curr.child[dir as usize].load(sync::atomic::Ordering::SeqCst);
+                let temp = unsafe { Arc::from_raw(nxt as *const NodePtr) };
+                let node_ptr = Arc::new(NodePtr::new(false, false, true, temp.node_ref.clone()));
+                node.child[1].store(Arc::into_raw(node_ptr) as * mut NodePtr, sync::atomic::Ordering::SeqCst);
+                node.back_link.store(Arc::into_raw(curr.clone()) as *mut Node , sync::atomic::Ordering::SeqCst);
+                let result = self.cas(sync::atomic::AtomicPtr::new(nxt), sync::atomic::AtomicPtr::new(Box::into_raw(Box::new(NodePtr::new(false, false, true, temp.node_ref.clone())))), sync::atomic::AtomicPtr::new(Box::into_raw(Box::new(NodePtr::new(false, false, false, node.clone())))));
+                if result == true {
+                    return true;
+                }
+
+
+
+            }
+
+        }
+     
+
+
+    }
+
+    fn locate(&self, mut prev : Arc<Node>, mut curr: Arc<Node>, k: u32) -> u32 {
+
+        loop {
+            let dir = self.compare(k, curr.k);
+            if dir == 2 {
+                return dir;
+            }
+            else {
+                let node = curr.child[dir as usize].load(sync::atomic::Ordering::SeqCst);
+                let temp = unsafe { Arc::from_raw(node as *const NodePtr) };
+                if temp.thread {
+                    if dir == 0 {
+                        return dir;
+                    }
+                }
+
+                prev = curr;
+                
+                curr = temp.node_ref.clone();
+                println!("{:?}", prev)
+            }
+
+        }
+
+       // return  -1;
+
+    }
+
+    fn compare(&self, k: u32, curr: u32) -> u32 {
+        if k == curr {
+            return 2;
+        } else if k > curr {
+            return 1;
+        }
+        0
+    }
+
+
 }
 
 
